@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import youtube_dl
+from pymongo import MongoClient
+from pprint import pprint
 import sys
 import argparse
 from googleapiclient.discovery import build
@@ -11,14 +13,21 @@ import re
 import html
 import requests
 import shutil
+import json
 
-YOUTUBE_API_KEY = 'AIzaSyCGl3sd8WcLjijySs3i3f2nd0ikV5i0O6Q'
+# Connect db
+mongo_uri = "mongodb://root:example@172.17.0.1:27017/"
+client = MongoClient(mongo_uri)
 
-parser = argparse.ArgumentParser(description='Download audio and video from YouTube')
+YOUTUBE_API_KEY = 'AIzaSyCEg40YmdKCgLkBSWxkhD6xyxy1ysQTfgk'
+
+parser = argparse.ArgumentParser(description='Download audio and convert to FLAC')
 parser.add_argument(
-        'url', metavar='URL', type=str, nargs='+',
-        help='url for the youtube video. example: \
-        http://www.youtube.com/watch?v=BaW_jenozKc'
+        'urls', metavar='URLS', type=str, nargs='+',
+        help='urls for the youtube videos. example: \
+        http://www.youtube.com/watch?v=BaW_jenozKc \
+        \
+        You can pass multiple URLs.'
 )
 parser.add_argument(
         'is_playlist', default=False, type=bool, nargs='?',
@@ -30,10 +39,11 @@ parser.add_argument(
 #                     help="if true, video will be downloaded as well. Defaults to false")
 
 args = parser.parse_args()
-# print(args.url)
 
-ALBUM_DIR = '/mnt/Music/%(title)s/%(title)s.%(ext)s'
-PLAYLIST_DIR = '/mnt/Music/%(playlist_title)s/%(title)s.%(ext)s'
+# download a single album to this location
+ALBUM_DIR = '~/Music/%(title)s/%(title)s.%(ext)s'
+# download tracks from a playlist to this location
+PLAYLIST_DIR = '~/Music/%(playlist_title)s/%(title)s.%(ext)s'
 if args.is_playlist:
     output_dir = PLAYLIST_DIR
 else:
@@ -52,26 +62,65 @@ ydl_options = {
 
 ydl = youtube_dl.YoutubeDL(ydl_options)
 
-def get_description(url):
-    with build('youtube', 'v3', developerKey=YOUTUBE_API_KEY) as service:
-        request = service.videos().list(part='snippet', id=get_video_ids(args.url))
-        try:
-            response = request.execute()
-        except HttpError as e:
-            print('Error response status code : {0}, reason : {1}'.format(e.status_code, e.error_details))
-            return {}
-    description = response['items'][0]['snippet']['description']
-    return description
+################# ^ GOOD
 
-def get_timestamps(url):
-    description = get_description(url)
-    timestamps = re.finditer(r'[0-9]+:[0-9]+.*', description)
-    # write timestamps to file
-    with open('timestamps.txt', 'w') as f:
-        for match in timestamps:
-            f.write(match[0] + "\n")
-    # optionally return timestamps
-    return timestamps
+def create_database(urls):
+    filename = Path('sqlite.db')
+    filename.touch(exist_ok=True)  # will create file, if it exists will do nothing
+    cursor = connection.cursor()
+    cursor.execute("CREATE TABLE music (id TEXT, description TEXT, timestamps text)")
+
+
+def get_description(urls):
+    """
+    Get the video descriptions, which may include artist, date, timstamp information.
+    """
+    for url in urls:
+        with build('youtube', 'v3', developerKey=YOUTUBE_API_KEY) as service:
+            request = service.videos().list(part='snippet', id=url)
+            try:
+                response = request.execute()
+            except HttpError as e:
+                print('Error response status code : {0}, reason : {1}'.format(e.status_code, e.error_details))
+                return {}
+        description = response['items'][0]['snippet']['description']
+        meta[url]['description'] = description
+
+def get_timestamps(urls):
+    """
+    Get timestamp information from the video description if available
+
+    Example output:
+    {"video_id": ['00:00', '03:30', ...]}
+    """
+    get_description(urls)
+    for url in urls:
+        meta[url]['timestamps'] = []
+        matches = re.finditer(r'([0-9]{1,2}:)?[0-9]{1,2}:[0-9]{1,2}', meta[url]['description'])
+        for m in matches:
+            meta[url]['timestamps'].append(m[0])
+            # # write timestamps to file
+            # with open('timestamps.txt', 'w') as f:
+            #     for match in timestamps:
+            #         f.write(match[0] + "\n")
+            # # optionally return timestamps
+    return meta
+
+def split_tracks(original_track, timestamps):
+    """split a music track into specified sub-tracks by calling ffmpeg from the shell"""
+    # create a template of the ffmpeg call in advance
+    cmd_string = 'ffmpeg -i {tr} -acodec copy -ss {st} -to {en} {nm}.flac'
+    with open('timestamps.txt', 'r') as f:
+        for line in f:
+            # skip comments and empty lines
+            if line.startswith('#') or len(line) <= 1:
+                continue
+
+            # create command string for a given track
+            start, end, name = line.strip().split()
+            command = cmd_string.format(tr=original_track, st=start, en=end, nm=name)
+            subprocess.call(command, shell=True)
+    return None
 
 def get_thumbnails(urls):
     ids = get_video_ids(urls)
@@ -126,31 +175,18 @@ def get_comment(parentCommentId):
         return response
 
 
-def split_tracks(original_track, timestamps):
-    """split a music track into specified sub-tracks by calling ffmpeg from the shell"""
-    # create a template of the ffmpeg call in advance
-    cmd_string = 'ffmpeg -i {tr} -acodec copy -ss {st} -to {en} {nm}.flac'
-
-    with open('timestamps.txt', 'r') as f:
-        for line in f:
-            # skip comments and empty lines
-            if line.startswith('#') or len(line) <= 1:
-                continue
-
-            # create command string for a given track
-            start, end, name = line.strip().split()
-            command = cmd_string.format(tr=original_track, st=start, en=end, nm=name)
-            subprocess.call(command, shell=True)
-    return None
-
 def get_video_ids(urls):
     """
     input: https://www.youtube.com/watch?v=beHVaOSn9-o
     output: beHVaOSn9-o
+
+    input: beHVaOSn9-o
+    output: beHVaOSn9-o
     """
     ids = []
     for url in urls:
-        ids.append(url[url.rindex('=')+1:])
+        if ids.append(url[url.rindex('=')+1:]):
+            pass
     return ids
 
 def trim_logs():
@@ -158,26 +194,40 @@ def trim_logs():
         lines = set(log.readlines())
 
 def download_audio(urls):
+    """
+    Download specified YouTube tracks as command line arguments, or through a queue file
+
+    Returns:
+    <list dest_files> : list of where the audio files are downloaded to
+    """
+    # where the files are downloaded
+    file_dest = []
     with ydl:
         for url in urls:
             print(url)
+            # history of downloaded tracks
             with open('track_log.txt', 'a') as log:
                 log.write(url+'\n')
-           # result = ydl.extract_info(
-           #     url,
-           #     # download=False # We just want to extract the info
-           # )
+            # Get filename location
+            meta = ydl.extract_info(
+                url,
+                download=False) # We just want to extract the path the filename the audio file is downloaded to
+            file_dest.append("~/Music/{}/{}.{}".format(meta['title'], meta['title'], meta['ext']))
         result = ydl.download(urls)
-       # if 'entries' in result:
-       #     # can be playlist or list of videos
-       #     video = result['entries'][0]
-       # else:
-       #     # Just a video
-       #     video = result
+        return file_dest
+
+
+def convert_audio():
+    """
+    Convert file to FLAC
+    """
+    pass
+
 
 if __name__ == '__main__':
-    print(args.url)
-    print(ydl.prepare_filename(ydl_options))
-    #download_audio(args.url)
-    timestamps = get_timestamps(args.url)
-    get_thumbnails(args.url)
+    get_metadata(args.urls)
+    timestamps = get_timestamps(args.urls)
+    pprint(timestamps)
+    file_dest = download_audio(args.urls)
+    split_tracks(dest_files, timestamps)
+    #get_thumbnails(args.url)
