@@ -237,30 +237,30 @@ if __name__ == '__main__':
             for url in queue:
                 url = get_video_id(url)
                 # Has this video been downloaded before?
-                if collection.count_documents({"video_id": url}, {"downloaded": 1}) != 0:
-                # if track has already been downloaded, skip it
-                # unless --force has been passed
-                    print("already downloaded, skipping")
-                    continue
-                if args.force or collection.count_documents({"video_id": url}, {"downloaded": 1}) == 0:
+                if args.force or (collection.count_documents({"video_id": url}) == 0) or (collection.count_documents({"video_id": url}, {"downloaded", 1})["downloaded"] == False):
                     timestamps = get_timestamps(url)
                     dest_file = download_audio(url)
                     get_thumbnails(url)
                     if args.split_tracks:
                         split_tracks(dest_file, timestamps)
-
+                else:
+                    # if track has already been downloaded, skip it
+                    # unless --force has been passed
+                    print("already downloaded, skipping")
+                    continue
     if args.urls:
         for url in args.urls:
             url = get_video_id(url)
             # Has this video been downloaded before?
-            if collection.count_documents({"video_id": url}, {"downloaded": 1}) != 0:
-                # if track has already been downloaded, skip it
-                # unless --force has been passed
-                print("already downloaded, skipping")
-                continue
-            if args.force or collection.count_documents({"video_id": url}, {"downloaded": 1}) == 0:
+            if args.force or (collection.count_documents({"video_id": url}) == 0) or (collection.count_documents({"video_id": url}, {"downloaded", 1})["downloaded"] == False):
                 timestamps = get_timestamps(url)
                 dest_file = download_audio(url)
                 get_thumbnails(url)
                 if args.split_tracks:
                     split_tracks(dest_file, timestamps)
+            else:
+                # if track has already been downloaded, skip it
+                # unless --force has been passed
+                print("already downloaded, skipping")
+                continue
+
