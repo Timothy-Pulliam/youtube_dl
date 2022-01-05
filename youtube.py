@@ -13,6 +13,7 @@ import re
 from pprint import pprint
 import requests
 import subprocess
+from config import YOUTUBE_API_KEY
 
 # Connect db
 client = MongoClient('localhost', 27017, connect=False)
