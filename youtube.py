@@ -118,7 +118,7 @@ def split_tracks(original_track, timestamps):
             subprocess.call(command, shell=True)
     return None
 
-def get_thumbnails(url):
+def get_thumbnails(url, file_dest):
     with build('youtube', 'v3', developerKey=YOUTUBE_API_KEY) as service:
         request = service.videos().list(part='snippet', id=url)
         try:
@@ -126,7 +126,7 @@ def get_thumbnails(url):
             thumbnails = response['items'][0]['snippet']['thumbnails']
             for key in thumbnails.keys():
                 r = requests.get(thumbnails[key]['url'], stream=True)
-                with open(DOWNLOAD_DIR + key + '.jpg', 'wb') as out_file:
+                with open(file_dest + key + '.jpg', 'wb') as out_file:
                     shutil.copyfileobj(r.raw, out_file)
         except HttpError as e:
             print('Error response status code : {0}, reason : {1}'.format(e.status_code, e.error_details))
@@ -185,8 +185,8 @@ def download_audio(urls):
             url,
             download=args.download) # We just want to extract the path the filename the audio file is downloaded to
         # where the files are downloaded
-        file_dest = "{}{}/{}.{}".format(DOWNLOAD_DIR, meta['title'], meta['title'], meta['ext'])
-        print(file_dest)
+        # file_dest = ["~/Music/songname/", "~/Music/songname/songname.flac"]
+        file_dest = ["{}{}/".format(DOWNLOAD_DIR, meta['title']), "{}{}/{}.{}".format(DOWNLOAD_DIR, meta['title'], meta['title'], meta['ext'])]
     collection.update_one({"video_id": url}, {"$set": {"download_date": datetime.utcnow(), "downloaded": False}})
     if args.download:
         collection.update_one({"video_id": url}, {"$set": {"downloaded": True}})
@@ -239,7 +239,7 @@ if __name__ == '__main__':
                 # Has this video been downloaded before?
                 if args.force or (collection.count_documents({"video_id": url}) == 0) or (collection.count_documents({"video_id": url}, {"downloaded", 1})["downloaded"] == False):
                     timestamps = get_timestamps(url)
-                    dest_file = download_audio(url)
+                    file_dest = download_audio(url, file_dest[0])
                     get_thumbnails(url)
                     if args.split_tracks:
                         split_tracks(dest_file, timestamps)
@@ -254,8 +254,8 @@ if __name__ == '__main__':
             # Has this video been downloaded before?
             if args.force or (collection.count_documents({"video_id": url}) == 0) or (collection.count_documents({"video_id": url}, {"downloaded", 1})["downloaded"] == False):
                 timestamps = get_timestamps(url)
-                dest_file = download_audio(url)
-                get_thumbnails(url)
+                file_dest = download_audio(url)
+                get_thumbnails(url, file_dest[0])
                 if args.split_tracks:
                     split_tracks(dest_file, timestamps)
             else:
