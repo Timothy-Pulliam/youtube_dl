@@ -19,7 +19,7 @@ Planned Features:
 0) Make sure ffmpeg is installed on your system (`apt install ffmpeg` or similar)
 
 1) Run a mongo docker container, which stores data about downloaded tracks (video descriptions, timestamps, thumbnail urls)
-`$ docker run -d --name mongo -p 27017:27017 mongo`
+2) `$ docker run -d --name mongo -p 27017:27017 mongo`
 
 2) Make sure the YouTube API key is in `config.py`
 
@@ -27,18 +27,23 @@ Planned Features:
 
 ## Running the script
 Download youtube and convert to FLAC using ffmpeg.
+
 `$ ./youtube "https://www.youtube.com/watch?v=FXdcZTv3VIw"`
 
 `$ ./youtube FXdcZTv3VIw`
 
 Force a download even if a track has already been downloaded before
+
 `$ ./youtube --force FXdcZTv3VIw`
 
 Don't download the video, but only get the track related data (video description, timestamps, thumbnails, etc.)
+
 `$ ./youtube --no-download FXdcZTv3VIw`
 
 Downloading multiple tracks
+
 `$ ./youtube --no-download FXdcZTv3VIw 0doWBQK7pqQ`
 
 Or specify a queue file containing a URL on each line
+
 `$ ./youtube --queue-file queue.txt`
